@@ -1,0 +1,1153 @@
+---
+title: "Gorilla Data clean up"
+author: "Sarah Crockford"
+date: "2/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Clears variables in global environment
+rm(list=ls())
+
+#Load packages
+library(tidyverse)
+library(NLP)
+
+#define the string containing information on the name of the MP3 values
+#as it's the only row we need to look analysis wise
+url.string <- "https://gorilla.sc/uploads/schedule/"  
+
+```
+### data_exp_28158-v14
+
+## Questionnaire Spreadsheet
+
+```{r read files}
+
+#Working Directory
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG")
+
+#Questionnaire files
+
+quest <- read.csv("data_exp_28158-v14_questionnaire-p92h.csv")
+quest <- subset(quest, quest$ï..Event.Index != "END OF FILE")
+
+quest$Participant.Public.ID <- as.factor(quest$Participant.Public.ID)
+participant_quest <- as.character(levels(quest$Participant.Public.ID))
+
+quest.language <- subset(quest, quest$Question.Key == "Other Language")
+
+write.csv(quest,"questionnaire.csv",row.names=FALSE)
+
+```
+
+## Single Naming spreadsheet
+
+```{r read and organise raw files}
+
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG")
+
+##Single naming task organization 
+
+#because of the randomisation, task outputs are stored in different files
+#call all the files into the R universe
+singlenaming.files <- c(
+                  "data_exp_28158-v14_task-dwkb.csv",
+                  "data_exp_28158-v14_task-pswc.csv",
+                  "data_exp_28158-v14_task-46yh.csv",
+                  "data_exp_28158-v14_task-txer.csv")
+
+#bind all the files into one large file
+single <- lapply(singlenaming.files, read.csv) %>% bind_rows()
+
+#remove blank row that Gorilla outputs indicating task is over
+single <- subset(single, single$ï..Event.Index != "END OF FILE") 
+
+#find participant names and create variable that stores them for future use
+single$Participant.Public.ID <- as.factor(single$Participant.Public.ID)
+participant_single <- as.character(levels(single$Participant.Public.ID))
+
+```
+
+```{r clean raw spreadsheet}
+
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG")
+
+#remove practice trials and instruction rows
+single <- subset(single, display == "yell_block" | display == "blue_block")
+
+#code which iteration of the experiment participants saw
+#where 1: blue English, yellow other; 2 blue other, yellow English
+single$language.assignment <- ifelse(
+    single$Task.Name == "Language 1: Single Naming", 1, 2) 
+
+#assign the correct language to the blocks participants viewed
+  
+single$language <- ifelse(single$language.assignment == 1
+                                     & single$colourcode == "yellow", 
+                                     "other", 
+                              ifelse(single$language.assignment == 1
+                                   & single$colourcode == "blue",
+                                   "english",
+                            ifelse(single$language.assignment == 2
+                                     & single$colourcode == "yellow",
+                                     "english", "other")))
+
+#remove unnecessary columns from our dataframe
+
+single <- select(single, -c(UTC.Timestamp, Local.Timestamp, Local.Timezone, 
+                            Local.Date, Experiment.ID,
+                            Experiment.Version, Repeat.Key, Schedule.ID, 
+                            Participant.Starting.Group, Participant.Status, 
+                            Participant.Completion.Code,
+                            Participant.External.Session.ID, 
+                            Participant.Device.Type, Checkpoint,
+                            randomiser.4lcp, randomiser.q111, 
+                            randomiser.l9fv, randomiser.q2w5, randomiser.xucf,
+                            randomiser.1u8o, randomiser.mdsj, randomiser.ll9n, 
+                            randomiser.e72x,
+                            Spreadsheet,Spreadsheet.Name,
+                            Reaction.Onset, Response.Type, Correct, Incorrect, 
+                            Dishonest, X.Coordinate,
+                            Y.Coordinate, Timed.Out, randomise_blocks, 
+                            randomise_trials, Screen.Number, Zone.Name, Attempt))
+
+#rename columns to be tidier
+
+single <- rename(single,  event.index = ï..Event.Index, date = UTC.Date, 
+                 experiment.key = Tree.Node.Key,  gorilla.ID = Participant.Public.ID,
+                 audio.ID = Participant.Private.ID,
+                 device = Participant.Device, operating.system = Participant.OS,
+                 browser = Participant.Browser, monitor.size = Participant.Monitor.Size,
+                 viewport.size = Participant.Viewport.Size, task.name = Task.Name,
+                 version = Task.Version, row.used = Spreadsheet.Row,
+                 order = Trial.Number, screen.name = Screen.Name, 
+                 stimuli = Zone.Type, stimuli.time = Reaction.Time,
+                 gorillaurl = Response, condition = display, targetimage = Image,
+                 targetimage.label.english = Prefix)
+
+#Add in columns that will need to be dealt with manually later on in Excel
+single$actual_imagelabel = NA
+single$correct = NA
+single$reaction.time = NA
+single$recording.notes = NA
+#finally keep only the trial information we need which contains the URL to 
+#download the mp3 files
+single.final <- subset(single[str_detect(single$gorillaurl, url.string), ])
+
+write.csv(single.final,"singlenaming_final.csv",row.names=FALSE)
+```
+
+
+## Switching Task spreadsheet
+
+```{r read and organise raw files}
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG")
+
+#Switching Task data organization
+
+switch.files <- c(
+            "data_exp_28158-v14_task-prpx.csv",
+            "data_exp_28158-v14_task-aswo.csv",
+            "data_exp_28158-v14_task-kks8.csv",
+            "data_exp_28158-v14_task-erts.csv",
+            "data_exp_28158-v14_task-p9v9.csv", 
+            "data_exp_28158-v14_task-xo55.csv",
+            "data_exp_28158-v14_task-q7cq.csv",
+            "data_exp_28158-v14_task-bork.csv")
+
+switch <- lapply(switch.files, read.csv) %>% bind_rows()
+
+#remove practice trials and instruction rows
+switch <- subset(switch, display == "Task")
+
+#find participant names and create variable that stores them for future use
+switch$Participant.Public.ID <- as.factor(switch$Participant.Public.ID)
+participant_switch <- as.character(levels(switch$Participant.Public.ID))
+```
+
+```{r clean and tidy raw spreadsheet}
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG")
+
+#remove unnecessary columns from our dataframe
+
+switch <- select(switch, -c(UTC.Timestamp, Local.Timestamp, Local.Timezone, 
+                            Local.Date, Experiment.ID,
+                            Experiment.Version, Repeat.Key, Schedule.ID, 
+                            Participant.Private.ID,
+                            Participant.Starting.Group, Participant.Status, 
+                            Participant.Completion.Code,
+                            Participant.External.Session.ID, 
+                            Participant.Device.Type, Checkpoint,
+                            randomiser.4lcp, randomiser.q111, 
+                            randomiser.l9fv, randomiser.q2w5, randomiser.xucf,
+                            randomiser.1u8o, randomiser.mdsj, randomiser.ll9n, 
+                            randomiser.e72x,
+                            Spreadsheet,Spreadsheet.Name,
+                            Reaction.Onset, Response.Type, Correct, Incorrect, 
+                            Dishonest, X.Coordinate,
+                            Y.Coordinate, Timed.Out, randomise_blocks, 
+                            randomise_trials, Screen.Number, Zone.Name, Attempt))
+
+#rename columns to be tidier
+
+switch <- rename(switch,  event.index = ï..Event.Index, date = UTC.Date, 
+                 experiment.key = Tree.Node.Key,  gorilla.ID = Participant.Public.ID,
+                 device = Participant.Device, operating.system = Participant.OS,
+                 browser = Participant.Browser, monitor.size = Participant.Monitor.Size,
+                 viewport.size = Participant.Viewport.Size, task.name = Task.Name,
+                 version = Task.Version, row.used = Spreadsheet.Row,
+                 order = Trial.Number, screen.name = Screen.Name, 
+                 stimuli = Zone.Type, stimuli.time = Reaction.Time,
+                 gorillaurl = Response, task = display, targetimage = Image)
+
+#Add in columns that will need to be dealt with manually later on in Excel
+switch$targetimage.label.other = NA
+switch$actual_imagelabel = NA
+switch$correct = NA
+switch$reaction.time = NA
+switch$recording.notes = NA
+
+switch.final <- subset(switch[str_detect(switch$gorillaurl, url.string), ])
+
+write.csv(switch.final,"switching_final.csv",row.names=FALSE)
+```
+
+### data_exp_28158-v15
+
+## Questionnaire Spreadsheet
+
+```{r read files}
+
+#Working Directory
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v15_LANG")
+
+#Questionnaire files
+
+quest <- read.csv("data_exp_28158-v15_questionnaire-p92h.csv")
+quest <- subset(quest, quest$ï..Event.Index != "END OF FILE")
+
+quest$Participant.Public.ID <- as.factor(quest$Participant.Public.ID)
+participant_quest <- as.character(levels(quest$Participant.Public.ID))
+
+quest.language <- subset(quest, quest$Question.Key == "Other Language")
+
+write.csv(quest,"questionnaire.csv",row.names=FALSE)
+
+```
+
+## Single Naming spreadsheet
+
+```{r read and organise raw files}
+
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v15_LANG")
+
+##Single naming task organization 
+
+#because of the randomisation, task outputs are stored in different files
+#call all the files into the R universe
+singlenaming.files <- c(
+                  "data_exp_28158-v15_task-dwkb.csv",
+                  "data_exp_28158-v15_task-pswc.csv",
+                  "data_exp_28158-v15_task-46yh.csv",
+                  "data_exp_28158-v15_task-txer.csv")
+
+#bind all the files into one large file
+single <- lapply(singlenaming.files, read.csv) %>% bind_rows()
+
+#remove blank row that Gorilla outputs indicating task is over
+single <- subset(single, single$ï..Event.Index != "END OF FILE") 
+
+#find participant names and create variable that stores them for future use
+single$Participant.Public.ID <- as.factor(single$Participant.Public.ID)
+participant_single <- as.character(levels(single$Participant.Public.ID))
+
+```
+
+```{r clean raw spreadsheet}
+
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v15_LANG")
+
+#remove practice trials and instruction rows
+single <- subset(single, display == "yell_block" | display == "blue_block")
+
+#code which iteration of the experiment participants saw
+#where 1: blue English, yellow other; 2 blue other, yellow English
+single$language.assignment <- ifelse(
+    single$Task.Name == "Language 1: Single Naming", 1, 2) 
+
+#assign the correct language to the blocks participants viewed
+  
+single$language <- ifelse(single$language.assignment == 1
+                                     & single$colourcode == "yellow", 
+                                     "other", 
+                              ifelse(single$language.assignment == 1
+                                   & single$colourcode == "blue",
+                                   "english",
+                            ifelse(single$language.assignment == 2
+                                     & single$colourcode == "yellow",
+                                     "english", "other")))
+
+#remove unnecessary columns from our dataframe
+
+single <- select(single, -c(UTC.Timestamp, Local.Timestamp, Local.Timezone, 
+                            Local.Date, Experiment.ID,
+                            Experiment.Version, Repeat.Key, Schedule.ID, 
+                            Participant.Starting.Group, Participant.Status, 
+                            Participant.Completion.Code,
+                            Participant.External.Session.ID, 
+                            Participant.Device.Type, Checkpoint,
+                            randomiser.4lcp, randomiser.q111, 
+                            randomiser.l9fv, randomiser.q2w5, randomiser.xucf,
+                            randomiser.1u8o, randomiser.mdsj, randomiser.ll9n, 
+                            randomiser.e72x,
+                            Spreadsheet,Spreadsheet.Name,
+                            Reaction.Onset, Response.Type, Correct, Incorrect, 
+                            Dishonest, X.Coordinate,
+                            Y.Coordinate, Timed.Out, randomise_blocks, 
+                            randomise_trials, Screen.Number, Zone.Name, Attempt))
+
+#rename columns to be tidier
+
+single <- rename(single,  event.index = ï..Event.Index, date = UTC.Date, 
+                 experiment.key = Tree.Node.Key,  gorilla.ID = Participant.Public.ID,
+                 audio.ID = Participant.Private.ID,
+                 device = Participant.Device, operating.system = Participant.OS,
+                 browser = Participant.Browser, monitor.size = Participant.Monitor.Size,
+                 viewport.size = Participant.Viewport.Size, task.name = Task.Name,
+                 version = Task.Version, row.used = Spreadsheet.Row,
+                 order = Trial.Number, screen.name = Screen.Name, 
+                 stimuli = Zone.Type, stimuli.time = Reaction.Time,
+                 gorillaurl = Response, condition = display, targetimage = Image,
+                 targetimage.label.english = Prefix)
+
+#Add in columns that will need to be dealt with manually later on in Excel
+single$actual_imagelabel = NA
+single$correct = NA
+single$reaction.time = NA
+single$recording.notes = NA
+#finally keep only the trial information we need which contains the URL to 
+#download the mp3 files
+single.final <- subset(single[str_detect(single$gorillaurl, url.string), ])
+
+write.csv(single.final,"singlenaming_final.csv",row.names=FALSE)
+```
+
+
+## Switching Task spreadsheet
+
+```{r read and organise raw files}
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v15_LANG")
+
+#Switching Task data organization
+
+switch.files <- c(
+            "data_exp_28158-v15_task-prpx.csv",
+            "data_exp_28158-v15_task-aswo.csv",
+            "data_exp_28158-v15_task-kks8.csv",
+            "data_exp_28158-v15_task-erts.csv",
+            "data_exp_28158-v15_task-p9v9.csv", 
+            "data_exp_28158-v15_task-xo55.csv",
+            "data_exp_28158-v15_task-q7cq.csv",
+            "data_exp_28158-v15_task-bork.csv")
+
+switch <- lapply(switch.files, read.csv) %>% bind_rows()
+
+#remove practice trials and instruction rows
+switch <- subset(switch, display == "Task")
+
+#find participant names and create variable that stores them for future use
+switch$Participant.Public.ID <- as.factor(switch$Participant.Public.ID)
+participant_switch <- as.character(levels(switch$Participant.Public.ID))
+```
+
+```{r clean and tidy raw spreadsheet}
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v15_LANG")
+
+#remove unnecessary columns from our dataframe
+
+switch <- select(switch, -c(UTC.Timestamp, Local.Timestamp, Local.Timezone, 
+                            Local.Date, Experiment.ID,
+                            Experiment.Version, Repeat.Key, Schedule.ID, 
+                            Participant.Private.ID,
+                            Participant.Starting.Group, Participant.Status, 
+                            Participant.Completion.Code,
+                            Participant.External.Session.ID, 
+                            Participant.Device.Type, Checkpoint,
+                            randomiser.4lcp, randomiser.q111, 
+                            randomiser.l9fv, randomiser.q2w5, randomiser.xucf,
+                            randomiser.1u8o, randomiser.mdsj, randomiser.ll9n, 
+                            randomiser.e72x,
+                            Spreadsheet,Spreadsheet.Name,
+                            Reaction.Onset, Response.Type, Correct, Incorrect, 
+                            Dishonest, X.Coordinate,
+                            Y.Coordinate, Timed.Out, randomise_blocks, 
+                            randomise_trials, Screen.Number, Zone.Name, Attempt))
+
+#rename columns to be tidier
+
+switch <- rename(switch,  event.index = ï..Event.Index, date = UTC.Date, 
+                 experiment.key = Tree.Node.Key,  gorilla.ID = Participant.Public.ID,
+                 device = Participant.Device, operating.system = Participant.OS,
+                 browser = Participant.Browser, monitor.size = Participant.Monitor.Size,
+                 viewport.size = Participant.Viewport.Size, task.name = Task.Name,
+                 version = Task.Version, row.used = Spreadsheet.Row,
+                 order = Trial.Number, screen.name = Screen.Name, 
+                 stimuli = Zone.Type, stimuli.time = Reaction.Time,
+                 gorillaurl = Response, task = display, targetimage = Image)
+
+#Add in columns that will need to be dealt with manually later on in Excel
+switch$targetimage.label.other = NA
+switch$actual_imagelabel = NA
+switch$correct = NA
+switch$reaction.time = NA
+switch$recording.notes = NA
+
+switch.final <- subset(switch[str_detect(switch$gorillaurl, url.string), ])
+
+write.csv(switch.final,"switching_final.csv",row.names=FALSE)
+```
+
+
+##collecting language switching variables
+
+```{r language switching scoring}
+
+rm(list=ls())
+
+switch.final1 <- read.csv("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG/switching_final.csv")
+switch.final2 <- read.csv("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v15_LANG/switching_final.csv")
+
+switch.final <- rbind(switch.final1, switch.final2)
+
+single.final1 <- read.csv("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG/singlenaming_final.csv")
+single.final2 <- read.csv("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v15_LANG/singlenaming_final.csv")
+
+single.final <- rbind(single.final1, single.final2)
+
+switch.final <- subset(switch.final, name != "desk")
+single.final <- subset(single.final, name != "desk")
+
+switch.final$gorilla.ID <- as.factor(switch.final$gorilla.ID)
+participant_switch.final <- as.character(levels(switch.final$gorilla.ID))
+
+participants_switch_remove1 <- c("widhz7r3")
+participant_switch.final <-participant_switch.final[!participant_switch.final == participants_switch_remove1]
+
+LANG_Final<-data.frame(Subject_No = t(t(participant_switch.final)))
+
+ind <- with(switch.final, c(FALSE, colourcode[-1L]!= colourcode[-length(colourcode)]))
+switch.final$switch <- ifelse(ind, 1, 0)
+
+# Loop through all the participants
+for(i in 1:length(participant_switch.final)){
+  
+  # get individual subjects data
+  switch.subj<-subset(switch.final, gorilla.ID==participant_switch.final[i])
+  single.subj<-subset(single.final, gorilla.ID==participant_switch.final[i])
+  
+  # Find required responses only
+  LANG.single.other <-single.subj[single.subj$language=="other" & single.subj$cognate == 0, ]
+  LANG.single.english <-single.subj[single.subj$language=="english" & single.subj$cognate == 0, ]
+  LANG.single <- single.subj[single.subj$cognate == 0, ]
+  LANG.switch <-switch.subj[switch.subj$cognate == 0, ]
+  LANG.switched.other <-
+    switch.subj[switch.subj$language=="other" & switch.subj$cognate == 0 & switch.subj$switch == 1, ]
+  LANG.switched.english <- 
+    switch.subj[switch.subj$language=="english" & switch.subj$cognate == 0 & switch.subj$switch == 1, ]
+  LANG.stay.other <-
+    switch.subj[switch.subj$language=="other" & switch.subj$cognate == 0 & switch.subj$switch == 0, ]
+  LANG.stay.english <- 
+    switch.subj[switch.subj$language=="english" & switch.subj$cognate == 0 & switch.subj$switch == 0, ]
+  LANG.switched <- switch.subj[switch.subj$cognate == 0 & switch.subj$switch == 1, ]
+  LANG.nonswitched <- switch.subj[switch.subj$cognate == 0 & switch.subj$switch == 0, ]
+  LANG.switch.other <- switch.subj[switch.subj$cognate == 0 & switch.subj$language=="other", ]
+  LANG.switch.english <- switch.subj[switch.subj$cognate == 0 & switch.subj$language=="english", ]
+
+  
+  # Inputting the analysed variables into the data frame
+  LANG_Final$single_error[i] = 100 - ((sum(LANG.single$correct, na.rm = TRUE)/96)*100)
+  LANG_Final$single_mean[i] = mean(as.numeric(LANG.single[LANG.single$correct==1, "reaction.time"]))
+  LANG_Final$single_stdev[i] = sd(as.numeric(LANG.single[LANG.single$correct==1, "reaction.time"]))
+  LANG_Final$single.other_error[i] = 100 - ((sum(LANG.single.other$correct, na.rm = TRUE)/48)*100)
+  LANG_Final$single.other_mean[i] = mean(as.numeric(LANG.single.other[LANG.single.other$correct==1, "reaction.time"]))
+  LANG_Final$single.other_stdev[i] = sd(as.numeric(LANG.single.other[LANG.single.other$correct==1, "reaction.time"]))
+  LANG_Final$single.english_error[i] = 100 - ((sum(LANG.single.english$correct, na.rm = TRUE)/48)*100)
+  LANG_Final$single.english_mean[i] = mean(as.numeric(LANG.single.english[LANG.single.english$correct==1, "reaction.time"]))
+  LANG_Final$single.english_stdev[i] = sd(as.numeric(LANG.single.english[LANG.single.english$correct==1, "reaction.time"]))
+  LANG_Final$switch_error[i] = 100 - ((sum(LANG.switch$correct, na.rm = TRUE)/96)*100)
+  LANG_Final$switch_mean[i] = mean(as.numeric(LANG.switch[LANG.switch$correct==1, "reaction.time"]))
+  LANG_Final$switch_stdev[i] = sd(as.numeric(LANG.switch[LANG.switch$correct==1, "reaction.time"]))
+  LANG_Final$switch.other_error[i] = 100 - ((sum(LANG.switch.other$correct, na.rm = TRUE)/48)*100)
+  LANG_Final$switch.other_mean[i] = mean(as.numeric(LANG.switch.other[LANG.switch.other$correct==1, "reaction.time"]))
+  LANG_Final$switch.other_stdev[i] = sd(as.numeric(LANG.switch.other[LANG.switch.other$correct==1, "reaction.time"]))
+  LANG_Final$switch.english_error[i] = 100 - ((sum(LANG.switch.english$correct, na.rm = TRUE)/48)*100)
+  LANG_Final$switch.english_mean[i] = mean(as.numeric(LANG.switch.english[LANG.switch.english$correct==1, "reaction.time"]))
+  LANG_Final$switch.english_stdev[i] = sd(as.numeric(LANG.switch.english[LANG.switch.english$correct==1, "reaction.time"]))
+  LANG_Final$switched_error[i] = 100 - ((sum(LANG.switched$correct, na.rm = TRUE)/48)*100)
+  LANG_Final$switched_mean[i] = mean(as.numeric(LANG.switched[LANG.switched$correct==1, "reaction.time"]))
+  LANG_Final$switched_stdev[i] = sd(as.numeric(LANG.switched[LANG.switched$correct==1, "reaction.time"]))
+  LANG_Final$nonswitched_error[i] = 100 - ((sum(LANG.nonswitched$correct, na.rm = TRUE)/48)*100)
+  LANG_Final$nonswitched_mean[i] = mean(as.numeric(LANG.nonswitched[LANG.nonswitched$correct==1, "reaction.time"]))
+  LANG_Final$nonswitched_stdev[i] = sd(as.numeric(LANG.nonswitched[LANG.nonswitched$correct==1, "reaction.time"]))
+  LANG_Final$switched.other_error[i] = 100 - ((sum(LANG.switched.other$correct, na.rm = TRUE)/24)*100)
+  LANG_Final$switched.other_mean[i] = mean(as.numeric(LANG.switched.other[LANG.switched.other$correct==1, "reaction.time"]))
+  LANG_Final$switched.other_stdev[i] = sd(as.numeric(LANG.switched.other[LANG.switched.other$correct==1, "reaction.time"]))
+  LANG_Final$stay.other_error[i] = 100 - ((sum(LANG.stay.other$correct, na.rm = TRUE)/24)*100)
+  LANG_Final$stay.other_mean[i] = mean(as.numeric(LANG.stay.other[LANG.stay.other$correct==1, "reaction.time"]))
+  LANG_Final$stay.other_stdev[i] = sd(as.numeric(LANG.stay.other[LANG.stay.other$correct==1, "reaction.time"]))
+  LANG_Final$switched.english_error[i] = 100 - ((sum(LANG.switched.english$correct, na.rm = TRUE)/24)*100)
+  LANG_Final$switched.english_mean[i] = mean(as.numeric(LANG.switched.english[LANG.switched.english$correct==1, "reaction.time"]))
+  LANG_Final$switched.english_stdev[i] = sd(as.numeric(LANG.switched.english[LANG.switched.english$correct==1, "reaction.time"]))
+  LANG_Final$stay.english_error[i] = 100 - ((sum(LANG.stay.english$correct, na.rm = TRUE)/24)*100)
+  LANG_Final$stay.english_mean[i] = mean(as.numeric(LANG.stay.english[LANG.stay.english$correct==1, "reaction.time"]))
+  LANG_Final$stay.english_stdev[i] = sd(as.numeric(LANG.stay.english[LANG.stay.english$correct==1, "reaction.time"]))
+  
+  LANG_Final$RT_switchcost[i] = LANG_Final$switched_mean[i] - LANG_Final$nonswitched_mean[i]
+  LANG_Final$ERR_switchcost[i] = LANG_Final$switched_error[i] - LANG_Final$nonswitched_error[i]
+  LANG_Final$RT_monitoringcost[i] = LANG_Final$switch_mean[i] - LANG_Final$single_mean[i]
+  LANG_Final$ERR_monitoringcost[i] = LANG_Final$switch_error[i] - LANG_Final$single_error[i]
+  LANG_Final$RT_singledominance[i] = 
+    LANG_Final$single.english_mean[i] - LANG_Final$single.other_mean[i]
+  LANG_Final$ERR_singledominance[i] = 
+    LANG_Final$single.english_error[i] - LANG_Final$single.other_error[i]
+  LANG_Final$RT_othermonitoring[i] = 
+    LANG_Final$switch.other_mean[i] - LANG_Final$single.other_mean[i]
+  LANG_Final$ERR_othermonitoring[i] = 
+    LANG_Final$switch.other_error[i] - LANG_Final$single.other_error[i]
+  LANG_Final$RT_englishmonitoring[i] = 
+    LANG_Final$switch.english_mean[i] - LANG_Final$single.english_mean[i]
+  LANG_Final$ERR_englishmonitoring[i] = 
+    LANG_Final$switch.english_error[i] - LANG_Final$single.english_error[i]
+  LANG_Final$RT_dominanceswitchcost[i] = 
+    LANG_Final$switched.other_mean[i] - LANG_Final$switched.english_mean[i]
+  LANG_Final$ERR_dominanceswitchcost[i] = 
+    LANG_Final$switched.other_error[i] - LANG_Final$switched.english_error[i]
+  LANG_Final$RT_dominancestay[i] = 
+    LANG_Final$stay.other_mean[i] - LANG_Final$stay.english_mean[i]
+  LANG_Final$ERR_dominancestay[i] = 
+    LANG_Final$stay.other_error[i] - LANG_Final$stay.english_error[i]
+  
+    rm(LANG.single, LANG.switch, LANG.single.english, LANG.single.other, LANG.switched,
+     LANG.nonswitched, LANG.switch.english, LANG.switch.other, LANG.stay.english, LANG.stay.other,
+     LANG.switched.english, LANG.switched.other, single.subj, switch.subj)
+
+  
+}
+
+
+
+```
+
+## Verbal Fluency spreadsheet
+
+```{r read and organise raw files}
+
+#Working Directory
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG")
+
+#Switching Task data organization
+
+fluency.files <- c(
+            "data_exp_28158-v14_task-9432.csv",
+            "data_exp_28158-v14_task-72ae.csv",
+            "data_exp_28158-v14_task-juwr.csv",
+            "data_exp_28158-v14_task-sipw.csv",
+            "data_exp_28158-v14_task-lj3f.csv", 
+            "data_exp_28158-v14_task-85ju.csv",
+            "data_exp_28158-v14_task-1nhv.csv",
+            "data_exp_28158-v14_task-kojq.csv",
+            "data_exp_28158-v14_task-maur.csv",
+            "data_exp_28158-v14_task-zbs1.csv",
+            "data_exp_28158-v14_task-i4vs.csv",
+            "data_exp_28158-v14_task-durg.csv",
+            "data_exp_28158-v14_task-x4mi.csv", 
+            "data_exp_28158-v14_task-mr7p.csv",
+            "data_exp_28158-v14_task-mb2i.csv",
+            "data_exp_28158-v14_task-8e9x.csv")
+
+fluency <- lapply(fluency.files, read.csv) %>% bind_rows()
+
+```
+
+```{r clean and tidy raw spreadsheet}
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_28158-v14_LANG")
+
+#remove unecessary trial data
+
+fluency <- subset(fluency[str_detect(fluency$Response, url.string), ])
+
+#remove practice trials and instruction rows
+fluency <- subset(fluency, display == "Animals" | display == "Vegetables" | 
+                    display == "Fruit" | display == "Articles of Clothing")
+
+#find participant names and create variable that stores them for future use
+fluency$Participant.Public.ID <- as.factor(fluency$Participant.Public.ID)
+participant_fluency <- as.character(levels(fluency$Participant.Public.ID))
+
+
+#code which iteration of the experiment participants saw
+#where 1: English; 2 other
+fluency$language.assignment <- ifelse(
+    fluency$Task.Name == "Language 1: Verbal Fluency", 1, 2) 
+
+#remove unnecessary columns from our dataframe
+
+fluency <- select(fluency, -c(UTC.Timestamp, Local.Timestamp, Local.Timezone, 
+                            Local.Date, Experiment.ID,
+                            Experiment.Version, Repeat.Key, Schedule.ID, 
+                            Participant.Private.ID,
+                            Participant.Starting.Group, Participant.Status, 
+                            Participant.Completion.Code,
+                            Participant.External.Session.ID, 
+                            Participant.Device.Type, Checkpoint,
+                            randomiser.4lcp, randomiser.q111, 
+                            randomiser.l9fv, randomiser.q2w5, randomiser.xucf,
+                            randomiser.1u8o, randomiser.mdsj, randomiser.ll9n, 
+                            randomiser.e72x,
+                            Spreadsheet,Spreadsheet.Name,
+                            Reaction.Onset, Response.Type, Correct, Incorrect, 
+                            Dishonest, X.Coordinate,
+                            Y.Coordinate, Timed.Out, randomise_blocks, 
+                            randomise_trials, Screen.Number, Zone.Name, Attempt))
+
+#rename columns to be tidier
+
+fluency <- rename(fluency,  event.index = ï..Event.Index, date = UTC.Date, 
+                 experiment.key = Tree.Node.Key,  gorilla.ID = Participant.Public.ID,
+                 device = Participant.Device, operating.system = Participant.OS,
+                 browser = Participant.Browser, monitor.size = Participant.Monitor.Size,
+                 viewport.size = Participant.Viewport.Size, task.name = Task.Name,
+                 version = Task.Version, row.used = Spreadsheet.Row,
+                 order = Trial.Number, screen.name = Screen.Name, 
+                 stimuli = Zone.Type, stimuli.time = Reaction.Time,
+                 gorillaurl = Response, condition = display)
+
+#Add in columns that will need to be dealt with manually later on in Excel
+fluency$recording.notes = NA
+
+write.csv(fluency,"fluency_final.csv",row.names=FALSE)
+```
+
+### data_exp_32125-v12_EF
+
+##Questionnaire
+
+```{r read files}
+
+#Working Directory
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_32125-v12_EF")
+
+#Questionnaire files
+
+quest.ef <- read.csv("data_exp_32125-v12_questionnaire-y3t9.csv")
+quest.ef <- subset(quest, quest$ï..Event.Index != "END OF FILE")
+
+write.csv(quest.ef,"questionnaire.csv",row.names=FALSE)
+
+```
+
+## Set-Shifting Task
+
+```{r set-shifting clean up}
+
+#Set working drive
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_32125-v12_EF")
+
+##Set shifting task organization 
+
+#because of the randomisation, task outputs are stored in different files
+#call all the files into the R universe
+setshifting.files <- c(
+                  "data_exp_32125-v12_task-8ohy.csv",
+                  "data_exp_32125-v12_task-555i.csv"
+                  )
+
+#bind all the files into one large file
+setshifting <- lapply(setshifting.files, read.csv) %>% bind_rows()
+
+#remove practice trials and instruction rows
+setshifting <- subset(setshifting, display == "trial")
+
+#remove empty rows
+setshifting <- subset(setshifting, Zone.Name == "response")
+
+
+setshifting$Participant.Public.ID <- as.factor(setshifting$Participant.Public.ID)
+participants_setshifting <- as.character(levels(setshifting$Participant.Public.ID))
+
+#label the switch trials
+ind <- with(setshifting, c(FALSE, cue[-1L]!= cue[-length(cue)]))
+setshifting$switch <- ifelse(ind, 1, 0)
+
+setshifting$block <- ifelse(setshifting$randomise_blocks == 1,
+                                     "shape", 
+                              ifelse(setshifting$randomise_blocks == 2,
+                                     "colour",
+                            ifelse(setshifting$randomise_blocks == 3,
+                                     "shift", "")))
+
+write.csv(setshifting, "setshifting_clean.csv",row.names=FALSE)
+``` 
+
+``` {r set-shifting scoring}
+
+SHIFT_Final<-data.frame(Subject_No = t(t(participants_setshifting)))
+
+
+# Loop through all the participants
+for(i in 1:length(participants_setshifting)){
+  
+  # get individual subjects data
+  SHIFT.subj<-subset(setshifting, Participant.Public.ID==participants_setshifting[i])
+  
+  # Find shape, colour, shift, shifted and non-shifted responses only
+  SHIFT.shape<-SHIFT.subj[SHIFT.subj$block=="shape" & SHIFT.subj$switch == 0, ]
+  SHIFT.colour<-SHIFT.subj[SHIFT.subj$block=="colour" & SHIFT.subj$switch == 0, ]
+  SHIFT.shift<-SHIFT.subj[SHIFT.subj$block=="shift", ]
+  SHIFT.shifted<-SHIFT.subj[SHIFT.subj$block=="shift" & SHIFT.subj$switch== 1, ]
+  SHIFT.nonshifted<-SHIFT.subj[SHIFT.subj$block=="shift" & SHIFT.subj$switch== 0, ]
+  SHIFT.stay <- rbind(SHIFT.colour, SHIFT.shape)
+  
+  # Get rid of NA rows what throw out analysis
+  SHIFT.shape <-SHIFT.shape[!is.na(SHIFT.shape$Response), ]
+  SHIFT.colour <-SHIFT.colour[!is.na(SHIFT.colour$Response), ]
+  SHIFT.shift <-SHIFT.shift[!is.na(SHIFT.shift$Response), ]
+  SHIFT.shifted <-SHIFT.shifted[!is.na(SHIFT.shifted$Response), ]
+  SHIFT.nonshifted <-SHIFT.nonshifted[!is.na(SHIFT.nonshifted$Response), ]
+  
+  # Inputting the analysed variables into the data frame
+  SHIFT_Final$color_corr[i] = sum(SHIFT.colour$Correct, na.rm = TRUE)
+  SHIFT_Final$color_error[i] = 100 - ((sum(SHIFT.colour$Correct, na.rm = TRUE)/20)*100)
+  SHIFT_Final$color_mean[i] = mean(as.numeric(SHIFT.colour[SHIFT.colour$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$color_median[i] = median(as.numeric(SHIFT.colour[SHIFT.colour$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$color_stdev[i] = sd(as.numeric(SHIFT.colour[SHIFT.colour$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shape_corr[i] = sum(SHIFT.shape$Correct, na.rm = TRUE)
+  SHIFT_Final$shape_error[i] = 100 - ((sum(SHIFT.shape$Correct, na.rm = TRUE)/20)*100)
+  SHIFT_Final$shape_mean[i] = mean(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shape_median[i] = median(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shape_stdev[i] = sd(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_corr[i] = sum(SHIFT.shift$Correct, na.rm = TRUE)
+  SHIFT_Final$shift_error[i] = 100 - ((sum(SHIFT.shift$Correct, na.rm = TRUE)/64)*100)
+  SHIFT_Final$shift_mean[i] = mean(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_median[i] = median(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_stdev[i] = sd(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shifted_trials[i] = nrow(SHIFT.shifted)
+  SHIFT_Final$shifted_corr[i] = sum(SHIFT.shifted$Correct, na.rm = TRUE)
+  SHIFT_Final$shifted_error[i] = 100 - ((sum(SHIFT.shifted$Correct, na.rm = TRUE)/SHIFT_Final$shifted_trials[i])*100)
+  SHIFT_Final$shifted_mean[i] = mean(as.numeric(SHIFT.shifted[SHIFT.shifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shifted_median[i] = median(as.numeric(SHIFT.shifted[SHIFT.shifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shifted_stdev[i] = sd(as.numeric(SHIFT.shifted[SHIFT.shifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$nonshifted_trials[i] = nrow(SHIFT.nonshifted)
+  SHIFT_Final$nonshifted_corr[i] = sum(SHIFT.nonshifted$Correct, na.rm = TRUE)
+  SHIFT_Final$nonshifted_error[i] = 100 - ((sum(SHIFT.nonshifted$Correct, na.rm = TRUE)/SHIFT_Final$nonshifted_trials[i])*100)
+  SHIFT_Final$nonshifted_mean[i] = mean(as.numeric(SHIFT.nonshifted[SHIFT.nonshifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$nonshifted_median[i] = median(as.numeric(SHIFT.nonshifted[SHIFT.nonshifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$nonshifted_stdev[i] = sd(as.numeric(SHIFT.nonshifted[SHIFT.nonshifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$stay_trials[i] = nrow(SHIFT.stay)
+  SHIFT_Final$stay_corr[i] = sum(SHIFT.stay$Correct, na.rm = TRUE)
+  SHIFT_Final$stay_error[i] = 100 - ((sum(SHIFT.stay$Correct, na.rm = TRUE)/SHIFT_Final$stay_trials[i])*100)
+  SHIFT_Final$stay_mean[i] = mean(as.numeric(SHIFT.stay[SHIFT.stay$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$stay_median[i] = median(as.numeric(SHIFT.stay[SHIFT.stay$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$stay_stdev[i] = sd(as.numeric(SHIFT.stay[SHIFT.stay$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_NIHscore[i] = (SHIFT_Final$shift_corr[i] / (SHIFT_Final$shift_corr[i] + SHIFT_Final$shift_error[i])) * 5 
+  SHIFT_Final$shift_NIHerror_diff[i] = SHIFT_Final$shift_error[i] - (SHIFT_Final$color_error[i] + SHIFT_Final$shape_error[i])
+  SHIFT_Final$RT_switchcost[i] = SHIFT_Final$shifted_mean[i] - SHIFT_Final$nonshifted_mean[i]
+  SHIFT_Final$ERR_switchcost[i] = SHIFT_Final$shifted_error[i] - SHIFT_Final$nonshifted_error[i]
+  SHIFT_Final$RT_monitoringcost[i] = SHIFT_Final$shift_mean[i] - SHIFT_Final$stay_mean[i]
+  SHIFT_Final$ERR_monitoringcost[i] = SHIFT_Final$shift_error[i] - SHIFT_Final$stay_error[i]
+  
+  rm(SHIFT.colour, SHIFT.nonshifted, SHIFT.shape, SHIFT.shift, SHIFT.shifted, SHIFT.stay, SHIFT.subj)
+  
+}
+
+```
+
+## Attentional Network Task
+
+```{r ANT scoring}
+#Set working drive
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_32125-v12_EF")
+
+##Set shifting task organization 
+
+#because of the randomisation, task outputs are stored in different files
+#call all the files into the R universe
+ANT.files <- c(
+                  "data_exp_32125-v12_task-rwra.csv",
+                  "data_exp_32125-v12_task-cnu8.csv")
+
+ANT <- lapply(ANT.files, read.csv) %>% bind_rows()
+
+# Find participnt names
+ANT$Participant.Public.ID <- as.factor(ANT$Participant.Public.ID)
+participants_ANT<-as.character(levels(ANT$Participant.Public.ID))
+# Take out those with incomplete data
+participants_ANT_remove1 <- c("")
+participants_ANT<-participants_ANT[!participants_ANT == participants_ANT_remove1]
+
+#create a data frame with required variables to be filled in with analysis
+ANT_Final<-data.frame(Subject_No = t(t(participants_ANT)))
+ANT_Final$ErrCong_ALL = NA
+ANT_Final$RTCong_ALL = NA
+ANT_Final$ErrIncong_ALL = NA
+ANT_Final$RTIncong_ALL = NA
+ANT_Final$ErrNeu_ALL = NA
+ANT_Final$RTNeu_ALL = NA
+ANT_Final$Err_NoCue_ALL = NA
+ANT_Final$RT_NoCue_ALL = NA
+ANT_Final$Err_CentreCue_ALL = NA
+ANT_Final$RT_CentreCue_ALL = NA
+ANT_Final$Err_DoubleCue_ALL = NA
+ANT_Final$RT_DoubleCue_ALL = NA
+ANT_Final$Err_SpatialCue_ALL = NA
+ANT_Final$RT_SpatialCue_ALL = NA
+ANT_Final$RT_Altering = NA
+ANT_Final$RT_Orienting = NA
+ANT_Final$RT_Exec = NA
+ANT_Final$Err_Altering = NA
+ANT_Final$Err_Orienting = NA
+ANT_Final$Err_Exec = NA
+
+# Loop through all the participants
+for(i in 1:length(participants_ANT)){
+  
+  # get individual subjects data
+  ANT.subj<-subset(ANT, ANT$Participant.Public.ID==participants_ANT[i])
+  
+  # Find beginning and end of blocks
+  begin.ANT<-which(ANT.subj$display=="Begin_Block")
+  end.ANT<-which(ANT.subj$display=="End_Block")
+  
+  # Use beginnign and end of block to cut out just the blocks wanted
+  ANT.allblock<-ANT.subj[begin.ANT[1]:end.ANT[length(end.ANT)], ]
+  
+  # Find Congruent, Incongruent and Neutral reponses only
+  ANT.cong<-ANT.allblock[ANT.allblock$Type=="Congruent" & ANT.allblock$Zone.Name=="Response", ]
+  ANT.incong<-ANT.allblock[ANT.allblock$Type=="Incongruent" & ANT.allblock$Zone.Name=="Response", ]
+  ANT.neu<-ANT.allblock[ANT.allblock$Type=="Neutral" & ANT.allblock$Zone.Name=="Response", ]
+  
+  # Find No Cue, Centre cue, double cue and spatial cue reponses only
+  # look at centre (cue_fixation cross), top (Cue1), or bottom (Cue2) asterisks
+  # Spatial cue look at top cue, bottom cue, then adds these together
+  ANT.nocue<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                            ANT.allblock$Cue1=="blank_asterisk_grey.png" &
+                            ANT.allblock$Cue2=="blank_asterisk_grey.png" &
+                            ANT.allblock$Zone.Name=="Response", ]
+  ANT.centrecue<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="asterisk_grey.png" &
+                                ANT.allblock$Cue1=="blank_asterisk_grey.png" &
+                                ANT.allblock$Cue2=="blank_asterisk_grey.png" &
+                                ANT.allblock$Zone.Name=="Response", ]
+  ANT.doublecue<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                                ANT.allblock$Cue1=="asterisk_grey.png" &
+                                ANT.allblock$Cue2=="asterisk_grey.png" &
+                                ANT.allblock$Zone.Name=="Response", ]  
+  ANT.spatialcuetop<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                                    ANT.allblock$Cue1=="asterisk_grey.png" &
+                                    ANT.allblock$Cue2=="blank_asterisk_grey.png" &
+                                    ANT.allblock$Zone.Name=="Response", ] 
+  ANT.spatialcuebottom<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                                    ANT.allblock$Cue1=="blank_asterisk_grey.png" &
+                                    ANT.allblock$Cue2=="asterisk_grey.png" &
+                                    ANT.allblock$Zone.Name=="Response", ] 
+  # make spatial cue (all) from spatial cue top and spatial cue bottom. 
+  ANT.spatialcue<-rbind(ANT.spatialcuetop, ANT.spatialcuebottom)
+  
+  # Get rid of NA rows what throw out analysis
+  ANT.cong<-ANT.cong[!is.na(ANT.cong$Response), ]
+  ANT.incong<-ANT.incong[!is.na(ANT.incong$Response), ]
+  ANT.neu<-ANT.neu[!is.na(ANT.neu$Response), ]
+  ANT.nocue<-ANT.nocue[!is.na(ANT.nocue$Response), ]
+  ANT.centrecue<-ANT.centrecue[!is.na(ANT.centrecue$Response), ]
+  ANT.doublecue<-ANT.doublecue[!is.na(ANT.doublecue$Response), ]
+  ANT.spatialcue<-ANT.spatialcue[!is.na(ANT.spatialcue$Response), ]
+  
+  # Inputting the analysed variables into the data frame
+  ANT_Final$ErrCong_ALL[i] = 100-(((sum(ANT.cong$Correct, na.rm=TRUE))/64)*100)
+  ANT_Final$RTCong_ALL[i] = mean(as.numeric(ANT.cong[ANT.cong$Correct==1, "Reaction.Time"]))
+  ANT_Final$ErrIncong_ALL[i] = 100-(((sum(ANT.incong$Correct, na.rm=TRUE))/64)*100)
+  ANT_Final$RTIncong_ALL[i] = mean(as.numeric(ANT.incong[ANT.incong$Correct==1, "Reaction.Time"]))
+  ANT_Final$ErrNeu_ALL[i] = 100-(((sum(ANT.neu$Correct, na.rm=TRUE))/64)*100)
+  ANT_Final$RTNeu_ALL[i] = mean(as.numeric(ANT.neu[ANT.neu$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_NoCue_ALL[i] = 100-(((sum(ANT.nocue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_NoCue_ALL[i] = mean(as.numeric(ANT.nocue[ANT.nocue$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_CentreCue_ALL[i] = 100-(((sum(ANT.centrecue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_CentreCue_ALL[i] = mean(as.numeric(ANT.centrecue[ANT.centrecue$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_DoubleCue_ALL[i] = 100-(((sum(ANT.doublecue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_DoubleCue_ALL[i] = mean(as.numeric(ANT.doublecue[ANT.doublecue$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_SpatialCue_ALL[i] = 100-(((sum(ANT.spatialcue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_SpatialCue_ALL[i] = mean(as.numeric(ANT.spatialcue[ANT.spatialcue$Correct==1, "Reaction.Time"]))
+  ANT_Final$RT_Altering[i] = ANT_Final$RT_NoCue_ALL[i] - ANT_Final$RT_DoubleCue_ALL[i]
+  ANT_Final$RT_Orienting[i] = ANT_Final$RT_CentreCue_ALL[i] - ANT_Final$RT_SpatialCue_ALL[i]
+  ANT_Final$RT_Exec[i] = ANT_Final$RTIncong_ALL[i] - ANT_Final$RTCong_ALL[i]
+  ANT_Final$Err_Altering[i] = ANT_Final$Err_NoCue_ALL[i] - ANT_Final$Err_DoubleCue_ALL[i]
+  ANT_Final$Err_Orienting[i] = ANT_Final$Err_CentreCue_ALL[i] - ANT_Final$Err_SpatialCue_ALL[i]
+  ANT_Final$Err_Exec[i] = ANT_Final$ErrIncong_ALL[i] - ANT_Final$ErrCong_ALL[i]
+  
+  # Remove no longer needed ANT data frames
+  rm(ANT.subj, begin.ANT, end.ANT, ANT.allblock, ANT.cong, ANT.incong, ANT.neu, ANT.nocue, ANT.centrecue,
+     ANT.doublecue, ANT.spatialcuetop, ANT.spatialcuebottom, ANT.spatialcue)
+   
+}
+
+
+```
+
+###data_exp_32125-v13_EF 
+
+##Questionnaire
+
+```{r read files}
+
+#Working Directory
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_32125-v13_EF")
+
+#Questionnaire files
+
+quest.ef <- read.csv("data_exp_32125-v13_questionnaire-y3t9.csv")
+quest.ef <- subset(quest, quest$ï..Event.Index != "END OF FILE")
+
+write.csv(quest.ef,"questionnaire.csv",row.names=FALSE)
+
+```
+
+## Set-Shifting Task
+
+```{r set-shifting clean up}
+#Set working drive
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_32125-v13_EF")
+
+##Set shifting task organization 
+
+#because of the randomisation, task outputs are stored in different files
+#call all the files into the R universe
+setshifting.files <- c(
+  "data_exp_32125-v13_task-8ohy.csv",
+  "data_exp_32125-v13_task-555i.csv"
+)
+
+#bind all the files into one large file
+setshifting <- lapply(setshifting.files, read.csv) %>% bind_rows()
+
+#remove practice trials and instruction rows
+setshifting <- subset(setshifting, display == "trial" & Zone.Name == "response")
+
+setshifting$Participant.Public.ID <- as.factor(setshifting$Participant.Public.ID)
+participants_setshifting <- as.character(levels(setshifting$Participant.Public.ID))
+
+#label the switch trials
+ind <- with(setshifting, c(FALSE, cue[-1L]!= cue[-length(cue)]))
+setshifting$switch <- ifelse(ind, 1, 0)
+
+#write.csv(setshifting,"setshifting_raw.csv",row.names=FALSE)
+``` 
+
+``` {r set-shifting scoring}
+
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_32125-v13_EF")
+
+SHIFT_Final<-data.frame(Subject_No = t(t(participants_setshifting)))
+
+
+# Loop through all the participants
+for(i in 1:length(participants_setshifting)){
+  
+  # get individual subjects data
+  SHIFT.subj<-subset(setshifting, Participant.Public.ID==participants_setshifting[i])
+  
+  
+  # Find shape, colour, shift, shifted and non-shifted responses only
+  SHIFT.all <- SHIFT.subj[SHIFT.subj$condition !="shape_throwaway" & SHIFT.subj$condition !="colour_throwaway", ]
+  SHIFT.shape<-SHIFT.subj[SHIFT.subj$condition=="shape" , ]
+  SHIFT.colour<-SHIFT.subj[SHIFT.subj$condition=="colour" , ]
+  SHIFT.shift<-SHIFT.subj[SHIFT.subj$condition=="shift" , ]
+  SHIFT.shifted<-SHIFT.subj[SHIFT.subj$condition=="shift" & SHIFT.subj$switch== 1 , ]
+  SHIFT.nonshifted<-SHIFT.subj[SHIFT.subj$condition=="shift" & SHIFT.subj$switch== 0 , ]
+  SHIFT.stay <- rbind(SHIFT.colour, SHIFT.shape)
+  
+  # Inputting the analysed variables into the data frame
+  SHIFT_Final$all_trials[i] = nrow(SHIFT.all)
+  SHIFT_Final$all_corr[i] = sum(SHIFT.all$Correct, na.rm = TRUE)
+  SHIFT_Final$all_error[i] = 100 - ((sum(SHIFT.all$Correct, na.rm = TRUE)/104)*100)
+  SHIFT_Final$all_mean[i] = mean(as.numeric(SHIFT.all[SHIFT.all$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$color_corr[i] = sum(SHIFT.colour$Correct, na.rm = TRUE)
+  SHIFT_Final$color_error[i] = 100 - ((sum(SHIFT.colour$Correct, na.rm = TRUE)/20)*100)
+  SHIFT_Final$color_mean[i] = mean(as.numeric(SHIFT.colour[SHIFT.colour$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$color_median[i] = median(as.numeric(SHIFT.colour[SHIFT.colour$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$color_stdev[i] = sd(as.numeric(SHIFT.colour[SHIFT.colour$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shape_corr[i] = sum(SHIFT.shape$Correct, na.rm = TRUE)
+  SHIFT_Final$shape_error[i] = 100 - ((sum(SHIFT.shape$Correct, na.rm = TRUE)/20)*100)
+  SHIFT_Final$shape_mean[i] = mean(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shape_median[i] = median(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shape_stdev[i] = sd(as.numeric(SHIFT.shape[SHIFT.shape$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_corr[i] = sum(SHIFT.shift$Correct, na.rm = TRUE)
+  SHIFT_Final$shift_error[i] = 100 - ((sum(SHIFT.shift$Correct, na.rm = TRUE)/64)*100)
+  SHIFT_Final$shift_mean[i] = mean(as.numeric(SHIFT.shift[SHIFT.shift$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_median[i] = median(as.numeric(SHIFT.shift[SHIFT.shift$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_stdev[i] = sd(as.numeric(SHIFT.shift[SHIFT.shift$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shifted_trials[i] = nrow(SHIFT.shifted)
+  SHIFT_Final$shifted_corr[i] = sum(SHIFT.shifted$Correct, na.rm = TRUE)
+  SHIFT_Final$shifted_error[i] = 100 - ((sum(SHIFT.shifted$Correct, na.rm = TRUE)/SHIFT_Final$shifted_trials[i])*100)
+  SHIFT_Final$shifted_mean[i] = mean(as.numeric(SHIFT.shifted[SHIFT.shifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shifted_median[i] = median(as.numeric(SHIFT.shifted[SHIFT.shifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shifted_stdev[i] = sd(as.numeric(SHIFT.shifted[SHIFT.shifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$nonshifted_trials[i] = nrow(SHIFT.nonshifted)
+  SHIFT_Final$nonshifted_corr[i] = sum(SHIFT.nonshifted$Correct, na.rm = TRUE)
+  SHIFT_Final$nonshifted_error[i] = 100 - ((sum(SHIFT.nonshifted$Correct, na.rm = TRUE)/SHIFT_Final$nonshifted_trials[i])*100)
+  SHIFT_Final$nonshifted_mean[i] = mean(as.numeric(SHIFT.nonshifted[SHIFT.nonshifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$nonshifted_median[i] = median(as.numeric(SHIFT.nonshifted[SHIFT.nonshifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$nonshifted_stdev[i] = sd(as.numeric(SHIFT.nonshifted[SHIFT.nonshifted$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$stay_trials[i] = nrow(SHIFT.stay)
+  SHIFT_Final$stay_corr[i] = sum(SHIFT.stay$Correct, na.rm = TRUE)
+  SHIFT_Final$stay_error[i] = 100 - ((sum(SHIFT.stay$Correct, na.rm = TRUE)/SHIFT_Final$stay_trials[i])*100)
+  SHIFT_Final$stay_mean[i] = mean(as.numeric(SHIFT.stay[SHIFT.stay$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$stay_median[i] = median(as.numeric(SHIFT.stay[SHIFT.stay$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$stay_stdev[i] = sd(as.numeric(SHIFT.stay[SHIFT.stay$Correct==1, "Reaction.Time"]))
+  SHIFT_Final$shift_NIHscore[i] = (SHIFT_Final$shift_corr[i] / (SHIFT_Final$shift_corr[i] + SHIFT_Final$shift_error[i])) * 5 
+  SHIFT_Final$shift_NIHerror_diff[i] = SHIFT_Final$shift_error[i] - (SHIFT_Final$color_error[i] + SHIFT_Final$shape_error[i])
+  SHIFT_Final$RT_switchcost[i] = SHIFT_Final$shifted_mean[i] - SHIFT_Final$nonshifted_mean[i]
+  SHIFT_Final$ERR_switchcost[i] = SHIFT_Final$shifted_error[i] - SHIFT_Final$nonshifted_error[i]
+  SHIFT_Final$RT_monitoringcost[i] = SHIFT_Final$shift_mean[i] - SHIFT_Final$stay_mean[i]
+  SHIFT_Final$ERR_monitoringcost[i] = SHIFT_Final$shift_error[i] - SHIFT_Final$stay_error[i]
+  
+  rm(SHIFT.colour, SHIFT.nonshifted, SHIFT.shape, SHIFT.shift, SHIFT.shifted, SHIFT.stay, SHIFT.subj)
+  
+}
+
+#write.csv(SHIFT_Final,"setshifting.csv",row.names=FALSE)
+
+```
+
+## Attentional Network Task
+
+```{r ANT scoring}
+#Set working drive
+
+setwd("C:/Users/sarah/OneDrive - University of Cambridge/Data collection/Adult_data/GORILLA TASK/Data/data_exp_32125-v13_EF")
+
+##Set shifting task organization 
+
+#because of the randomisation, task outputs are stored in different files
+#call all the files into the R universe
+ANT.files <- c(
+                  "data_exp_32125-v13_task-rwra.csv",
+                  "data_exp_32125-v13_task-cnu8.csv")
+
+ANT <- lapply(ANT.files, read.csv) %>% bind_rows()
+
+# Find participnt names
+ANT$Participant.Public.ID <- as.factor(ANT$Participant.Public.ID)
+participants_ANT<-as.character(levels(ANT$Participant.Public.ID))
+# Take out those with incomplete data
+participants_ANT_remove1 <- c("")
+participants_ANT<-participants_ANT[!participants_ANT == participants_ANT_remove1]
+
+#create a data frame with required variables to be filled in with analysis
+ANT_Final<-data.frame(Subject_No = t(t(participants_ANT)))
+
+# Loop through all the participants
+for(i in 1:length(participants_ANT)){
+  
+  # get individual subjects data
+  ANT.subj<-subset(ANT, ANT$Participant.Public.ID==participants_ANT[i])
+  
+  # Find beginning and end of blocks
+  begin.ANT<-which(ANT.subj$display=="Begin_Block")
+  end.ANT<-which(ANT.subj$display=="End_Block")
+  
+  # Use beginnign and end of block to cut out just the blocks wanted
+  ANT.allblock<-ANT.subj[begin.ANT[1]:end.ANT[length(end.ANT)], ]
+  
+  # Find Congruent, Incongruent and Neutral reponses only
+  ANT.all<-ANT.allblock[ANT.allblock$Zone.Name=="Response", ]
+  ANT.cong<-ANT.allblock[ANT.allblock$Type=="Congruent" & ANT.allblock$Zone.Name=="Response", ]
+  ANT.incong<-ANT.allblock[ANT.allblock$Type=="Incongruent" & ANT.allblock$Zone.Name=="Response", ]
+  ANT.neu<-ANT.allblock[ANT.allblock$Type=="Neutral" & ANT.allblock$Zone.Name=="Response", ]
+  
+  # Find No Cue, Centre cue, double cue and spatial cue reponses only
+  # look at centre (cue_fixation cross), top (Cue1), or bottom (Cue2) asterisks
+  # Spatial cue look at top cue, bottom cue, then adds these together
+  ANT.nocue<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                            ANT.allblock$Cue1=="blank_asterisk_grey.png" &
+                            ANT.allblock$Cue2=="blank_asterisk_grey.png" &
+                            ANT.allblock$Zone.Name=="Response", ]
+  ANT.centrecue<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="asterisk_grey.png" &
+                                ANT.allblock$Cue1=="blank_asterisk_grey.png" &
+                                ANT.allblock$Cue2=="blank_asterisk_grey.png" &
+                                ANT.allblock$Zone.Name=="Response", ]
+  ANT.doublecue<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                                ANT.allblock$Cue1=="asterisk_grey.png" &
+                                ANT.allblock$Cue2=="asterisk_grey.png" &
+                                ANT.allblock$Zone.Name=="Response", ]  
+  ANT.spatialcuetop<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                                    ANT.allblock$Cue1=="asterisk_grey.png" &
+                                    ANT.allblock$Cue2=="blank_asterisk_grey.png" &
+                                    ANT.allblock$Zone.Name=="Response", ] 
+  ANT.spatialcuebottom<-ANT.allblock[ANT.allblock$Cue_Fixation_Cross=="fixation_cross_grey.png" & 
+                                    ANT.allblock$Cue1=="blank_asterisk_grey.png" &
+                                    ANT.allblock$Cue2=="asterisk_grey.png" &
+                                    ANT.allblock$Zone.Name=="Response", ] 
+  # make spatial cue (all) from spatial cue top and spatial cue bottom. 
+  ANT.spatialcue<-rbind(ANT.spatialcuetop, ANT.spatialcuebottom)
+  
+  # Get rid of NA rows what throw out analysis
+  ANT.cong<-ANT.cong[!is.na(ANT.cong$Response), ]
+  ANT.incong<-ANT.incong[!is.na(ANT.incong$Response), ]
+  ANT.neu<-ANT.neu[!is.na(ANT.neu$Response), ]
+  ANT.nocue<-ANT.nocue[!is.na(ANT.nocue$Response), ]
+  ANT.centrecue<-ANT.centrecue[!is.na(ANT.centrecue$Response), ]
+  ANT.doublecue<-ANT.doublecue[!is.na(ANT.doublecue$Response), ]
+  ANT.spatialcue<-ANT.spatialcue[!is.na(ANT.spatialcue$Response), ]
+  
+  # Inputting the analysed variables into the data frame
+  ANT_Final$Alltrials[i] = nrow(ANT.all)
+  ANT_Final$Err_ALL[i] = 100-(((sum(ANT.all$Correct, na.rm=TRUE))/192)*100)
+  ANT_Final$RT_ALL[i] = mean(as.numeric(ANT.all[ANT.all$Correct==1, "Reaction.Time"]))
+  ANT_Final$ErrCong_ALL[i] = 100-(((sum(ANT.cong$Correct, na.rm=TRUE))/64)*100)
+  ANT_Final$RTCong_ALL[i] = mean(as.numeric(ANT.cong[ANT.cong$Correct==1, "Reaction.Time"]))
+  ANT_Final$ErrIncong_ALL[i] = 100-(((sum(ANT.incong$Correct, na.rm=TRUE))/64)*100)
+  ANT_Final$RTIncong_ALL[i] = mean(as.numeric(ANT.incong[ANT.incong$Correct==1, "Reaction.Time"]))
+  ANT_Final$ErrNeu_ALL[i] = 100-(((sum(ANT.neu$Correct, na.rm=TRUE))/64)*100)
+  ANT_Final$RTNeu_ALL[i] = mean(as.numeric(ANT.neu[ANT.neu$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_NoCue_ALL[i] = 100-(((sum(ANT.nocue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_NoCue_ALL[i] = mean(as.numeric(ANT.nocue[ANT.nocue$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_CentreCue_ALL[i] = 100-(((sum(ANT.centrecue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_CentreCue_ALL[i] = mean(as.numeric(ANT.centrecue[ANT.centrecue$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_DoubleCue_ALL[i] = 100-(((sum(ANT.doublecue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_DoubleCue_ALL[i] = mean(as.numeric(ANT.doublecue[ANT.doublecue$Correct==1, "Reaction.Time"]))
+  ANT_Final$Err_SpatialCue_ALL[i] = 100-(((sum(ANT.spatialcue$Correct, na.rm=TRUE))/48)*100)
+  ANT_Final$RT_SpatialCue_ALL[i] = mean(as.numeric(ANT.spatialcue[ANT.spatialcue$Correct==1, "Reaction.Time"]))
+  ANT_Final$RT_Altering[i] = ANT_Final$RT_NoCue_ALL[i] - ANT_Final$RT_DoubleCue_ALL[i]
+  ANT_Final$RT_Orienting[i] = ANT_Final$RT_CentreCue_ALL[i] - ANT_Final$RT_SpatialCue_ALL[i]
+  ANT_Final$RT_Exec[i] = ANT_Final$RTIncong_ALL[i] - ANT_Final$RTCong_ALL[i]
+  ANT_Final$Err_Altering[i] = ANT_Final$Err_NoCue_ALL[i] - ANT_Final$Err_DoubleCue_ALL[i]
+  ANT_Final$Err_Orienting[i] = ANT_Final$Err_CentreCue_ALL[i] - ANT_Final$Err_SpatialCue_ALL[i]
+  ANT_Final$Err_Exec[i] = ANT_Final$ErrIncong_ALL[i] - ANT_Final$ErrCong_ALL[i]
+  
+  # Remove no longer needed ANT data frames
+  rm(ANT.subj, begin.ANT, end.ANT, ANT.allblock, ANT.cong, ANT.incong, ANT.neu, ANT.nocue, ANT.centrecue,
+     ANT.doublecue, ANT.spatialcuetop, ANT.spatialcuebottom, ANT.spatialcue)
+   
+}
+
+write.csv(ANT_Final,"attentionalnetwork.csv",row.names=FALSE)
+
+```
